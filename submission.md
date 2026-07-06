@@ -84,11 +84,11 @@
 ### Bug #5
 **Issue number:** 5   
 **Title:** The last song in a playlist never shows up
-**Preproduction Process:**  
-**Discovery Process:**  
-**Bug Description:** The last line of code of the `get_playlist_songs()` function used list comprehension to quickly convert query results to a list of dictionary. However, the code also indexed the list of query results from the first position up to the last position exclusively, NOT inclusively, `songs[:-1]`. In Python, a list slice `[start:stop]` is inclusive of the start but exclusive of the stop. This caused the playlist display service to skip the last queried song and introduced a bug.
+**Preproduction Process:** I ran the tests in `tests/test_playlists.py` and encountered 2 failed tests and 1 passed test.  
+**Discovery Process:** After reading the test summary, I found out that the service returned 4 songs from the testing playlist when it was supposed to be 5 of them. I read the two of the failed test cases (`test_playlist_returns_all_songs` and `test_playlist_returns_songs_in_order`) and confirmed the main function used in these test cases was `get_playlist_songs`. Therefore, the bug must have lived there. 
+**Bug Description:** The last line of code of the `get_playlist_songs` function used list comprehension to quickly convert query results to a list of dictionary. However, the code also sliced the list of query results from the first position up to the last position exclusively, NOT inclusively, `songs[:-1]`. In Python, a list slice `[start:stop]` is inclusive of the start but exclusive of the stop. This caused the playlist display service to skip the last queried song and introduced a bug.
 **Solution:** Simply remove the list slicing, i.e. `[:-1]`. This will let the function retrieve and process the whole query results stored in the `songs` list, instead of a part of it.
-**Side-effect Check:**  
+**Side-effect Check:** I ran the test cases from `tests/test_playlists.py` again and all tests passed.
 
 
 ## Regression Test
