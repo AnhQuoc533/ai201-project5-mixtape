@@ -31,27 +31,27 @@
   
 #### Playlist Service
 * **Create a playlist:** `POST /playlists/` in `routes/playlists.py` calls `playlist_service.create_playlist(name, created_by, is_collaborative)`. Creates a new *Playlist* record with the specified name, creator, and collaboration setting.
-* **View a playlist:** `GET /playlists/<playlist_id>` in `routes/playlists.py` calls `playlist_service.get_playlist(playlist_id)`. Returns a *Playlist* record's metadata (name, creator, collaboration setting, timestamps).
-* **View the list of songs in a playlist:** `GET /playlists/<playlist_id>/songs` in `routes/playlists.py` calls `playlist_service.get_playlist_songs(playlist_id)`. Returns all *Song* records in the playlist, ordered by their position in the playlist.
+* **View a playlist:** `GET /playlists/<playlist_id>` in `routes/playlists.py` calls `playlist_service.get_playlist(playlist_id)`. Returns a *Playlist* record (name, creator, collaboration setting, timestamps).
+* **View songs in a playlist:** `GET /playlists/<playlist_id>/songs` in `routes/playlists.py` calls `playlist_service.get_playlist_songs(playlist_id)`. Returns all *Song* records in the playlist, ordered by their position.
 * **Add a song to a playlist:** `POST /playlists/<playlist_id>/songs` in `routes/playlists.py` calls `notification_service.add_to_playlist(playlist_id, song_id, added_by_user_id)`. Adds the *Song* to the *Playlist* and creates a *Notification* record for the song's original sharer (if different from the user adding it).
   
 #### User's Feed Service
-* **Show Friends Listening Now feed:** `GET /feed/<user_id>/listening-now` in `routes/feed.py` calls `feed_service.get_friends_listening_now(user_id)`. Returns the most recent *ListeningEvent* from each friend within the last 24 hours, deduplicated to show only one song per friend.
+* **Show Friends Listening Now feed:** `GET /feed/<user_id>/listening-now` in `routes/feed.py` calls `feed_service.get_friends_listening_now(user_id)`. Returns the most recent *ListeningEvent* from each friend within the current day, deduplicated to show only one song per friend.
 * **Show Recent Activities from friends:** `GET /feed/<user_id>/activity` in `routes/feed.py` calls `feed_service.get_activity_feed(user_id, limit)`. Returns the N most recent *ListeningEvent* records from all friends (default limit is 20), ordered by most recent first.
 
 ## Root Cause Analysis
 ### Bug #1
 **Issue number:** 1  
 **Title:** My listening streak keeps resetting  
-**Preproduction Process:**  
+**Preproduction Process:** I ran the test cases in `tests/test_streaks.py` and encountered 1 failed tests and 4 passed test.   
 <!-- What steps did you take to confirm the bug exists before touching any code? What inputs, sequence of actions, or data condition triggered the behavior? !-->
-**Discovery Process:**  
+**Discovery Process:** After reading the failure report and the failed test case (`test_streak_increments_on_sunday`), I found out that the streaking service did not increment the listening streak on Sundays. This test case primarily executed `update_listening_streak` function. Therefore, the bug must have lived there.   
 <!-- Which files did you look at? What was your navigation path? What moment made you confident you'd found the right place — not just a suspicious area, but the specific cause? !-->
-**Bug Description:**  
+**Bug Description:** Inside the `update_listening_streak` lies the streak-counting rules, implemented using an `if-elif-else` statement. However, in the increment condition, there was a code that prevented the streak from increasing if the current date was Sunday, i.e. `today.weekday() != 6`. As a result, the increment logic was skipped on Sundays, causing execution to fall to the `else` branch and incorrectly reset the user's listening streak.
 <!-- explain the specific condition, comparison, logic error, or missing step that caused the problem. !-->
-**Solution:**  
+**Solution:** Simply remove `today.weekday() != 6` from the increment condition. This lets the function increment the listening streak, regardless of the day of the week.  
 <!-- What did you change and why does that change fix the root cause? What related functionality did you check afterward to confirm you didn't break anything? !-->
-**Side-effect Check:**  
+**Side-effect Check:** I ran the test cases from `tests/test_playlists.py` again and all tests passed.  
 
 
 ### Bug #2
@@ -64,8 +64,8 @@
 ```
 cutoff = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 ```
-New `cutoff` will let the query return listening events that only occurred since midnight UTC of the current date.   
-**Side-effect Check:** I inspected the Listening Now feed for all users and every records were correctly showing only activities within the current date.  
+New `cutoff` will let the query return listening events that only occurred since midnight UTC of the current day.   
+**Side-effect Check:** I inspected the Listening Now feed for all users and every records were correctly showing only activities within the current day.  
 
 ### Bug #3
 **Issue number:** 3   
@@ -88,10 +88,10 @@ New `cutoff` will let the query return listening events that only occurred since
 ### Bug #5
 **Issue number:** 5   
 **Title:** The last song in a playlist never shows up
-**Preproduction Process:** I ran the tests in `tests/test_playlists.py` and encountered 2 failed tests and 1 passed test.  
+**Preproduction Process:** I ran the test cases in `tests/test_playlists.py` and encountered 2 failed tests and 1 passed test.  
 **Discovery Process:** After reading the test summary, I found out that the service returned 4 songs in the testing playlist when it was supposed to be 5 of them. I read the two of the failed test cases (`test_playlist_returns_all_songs` and `test_playlist_returns_songs_in_order`) and confirmed the main function used in these test cases was `get_playlist_songs`. Therefore, the bug must have lived there. 
 **Bug Description:** The last line of code of the `get_playlist_songs()` function used list comprehension to quickly convert query results to a list of dictionary. However, the code also indexed the list of query results from the first position up to the last position exclusively, NOT inclusively, `songs[:-1]`. In Python, a list slice `[start:stop]` is inclusive of the start but exclusive of the stop. This caused the playlist display service to skip the last queried song and introduced a bug.
-**Solution:** Simply remove the list slicing, i.e. `[:-1]`. This will let the function retrieve and process the whole query results stored in the `songs` list, instead of a part of it.
+**Solution:** Simply remove the list slicing, i.e. `[:-1]`. This lets the function retrieve and process the whole query results stored in the `songs` list, instead of a part of it.
 **Side-effect Check:** I ran the test cases from `tests/test_playlists.py` again and all tests passed.
 
 
