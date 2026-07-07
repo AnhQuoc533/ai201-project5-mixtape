@@ -36,8 +36,8 @@
 * **Add a song to a playlist:** `POST /playlists/<playlist_id>/songs` in `routes/playlists.py` calls `notification_service.add_to_playlist(playlist_id, song_id, added_by_user_id)`. Adds the *Song* to the *Playlist* and creates a *Notification* record for the song's original sharer (if different from the user adding it).
   
 #### User's Feed Service
-* **Show recent activities within 24 hours from friends:** `GET /feed/<user_id>/listening-now` in `routes/feed.py` calls `feed_service.get_friends_listening_now(user_id)`. Returns the most recent *ListeningEvent* from each friend within the last 24 hours, deduplicated to show only one song per friend.
-* **Show a number of recent activities from friends:** `GET /feed/<user_id>/activity` in `routes/feed.py` calls `feed_service.get_activity_feed(user_id, limit)`. Returns the N most recent *ListeningEvent* records from all friends (default limit is 20), ordered by most recent first.
+* **Show Friends Listening Now feed:** `GET /feed/<user_id>/listening-now` in `routes/feed.py` calls `feed_service.get_friends_listening_now(user_id)`. Returns the most recent *ListeningEvent* from each friend within the last 24 hours, deduplicated to show only one song per friend.
+* **Show Recent Activities from friends:** `GET /feed/<user_id>/activity` in `routes/feed.py` calls `feed_service.get_activity_feed(user_id, limit)`. Returns the N most recent *ListeningEvent* records from all friends (default limit is 20), ordered by most recent first.
 
 ## Root Cause Analysis
 ### Bug #1
@@ -57,11 +57,15 @@
 ### Bug #2
 **Issue number:** 2  
 **Title:** *Friends Listening Now* shows people from yesterday  
-**Preproduction Process:**  
-**Discovery Process:**  
-**Bug Description:**  
-**Solution:**  
-**Side-effect Check:**  
+**Preproduction Process:** I seeded the database with test data and ran the application. To retrieve user IDs, I executed the command `sqlite3 instance/mixtape.db "SELECT * FROM user;"` and inspected the Listening Now feed for several users. Simone's feed showed his friend, Nova, was listening to a song from yesterday. This event confirmed the reported bug.  
+**Discovery Process:** According to the [Data Flow](#data-flow), the `get_friends_listening_now` function in `services/feed_service.py` is responsible for Listening Now service. Its docstring also confirmed its responsibility.    
+**Bug Description:** The root cause was the `cutoff` variable. The query filtered `ListeningEvent` records using the timestamp stored in this variable, which was defined as 24 hours before the current time. As a result, friends who listened within the last 24 hours, including yesterday, appeared in the Friends Listening Now feed.       
+**Solution:** I removed `RECENT_THRESHOLD` and re-defined `cutoff`:
+```
+cutoff = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+```
+New `cutoff` will let the query return listening events that only occurred since midnight UTC of the current date.   
+**Side-effect Check:** I inspected the Listening Now feed for all users and every records were correctly showing only activities within the current date.  
 
 ### Bug #3
 **Issue number:** 3   
@@ -93,3 +97,56 @@
 
 ## Regression Test
 <!-- A test that would have caught the fixed bugs before it was introduced. Reference the test and explain what behavior it verifies and why that test would have failed against the buggy code. !-->
+**Test Subject:** Feed Service
+
+**Overview:** This regression test framework for the feed service is made with `pytest` and stored in `tests/test_feed.py`. It includes comprehensive test cases that would have caught bugs in the feed logic before they were introduced.
+
+**For Bug #2:**
+
+- `TestFriendsListeningNow.test_inactive_friends_since_midnight()`
+  - **Behavior verified:** Friends who last listened before midnight UTC today should NOT appear in the Listening Now feed.
+  - **Why it would fail against buggy code:** If `cutoff` was incorrectly set to 24 hours ago (instead of midnight UTC today), Friend 3 (who listened before midnight) would appear in the feed when they shouldn't. This test would fail because the actual feed length would be 3 instead of the expected 2.
+
+- `TestFriendsListeningNow.test_number_of_friends_listening_today()`
+  - **Behavior verified:** Only friends with activities between midnight UTC and current time appear in the feed.
+  - **Why it would fail against buggy code:** The buggy 24-hour cutoff would include yesterday's activities, causing the test to return 3 friends instead of the expected 2.
+
+**For General Feed Logic Correctness:**
+
+- **Test:** `TestFriendsListeningNow.test_one_song_per_friend()`
+  - **Behavior verified:** Deduplication works correctly—each friend appears at most once, showing only their most recent listening event.
+  - **Why it would fail:** If the deduplication logic in `get_friends_listening_now()` was broken, Friend 2 (who has 2 listening events) would appear twice in the feed.
+
+- **Test:** `TestFriendsListeningNow.test_only_shows_friends()`
+  - **Behavior verified:** Only activities from actual friends are included; non-friends are excluded.
+  - **Why it would fail:** If the friend filtering was incorrect, the non-friend's activity would appear in the Listening Now feed, causing an assertion error.
+
+- **Test:** `TestFriendsListeningNow.test_ordered_by_recency_descending()`
+  - **Behavior verified:** Activities are ordered by most recent first.
+  - **Why it would fail:** If the ordering logic was incorrect, the test would fail when comparing adjacent timestamps and find that they're not in descending order.
+
+- **Test:** `TestActivityFeed.test_activity_limit_high_bound()`
+  - **Behavior verified:** The activity feed returns 4 activities, despite the limit parameter being greater.
+  - **Why it would fail:** If limit logic was broken or activities were being incorrectly filtered, the actual count would not match the expected count of 4.
+
+- **Test:** `TestActivityFeed.test_activity_limit_low_bound()`
+  - **Behavior verified:** The activity feed returns the exact number of activities denoted by the limit, as the limit is lower than the activity count.
+  - **Why it would fail:** If limit logic was broken or activities were being incorrectly filtered, the actual count would not match the limit value.
+
+- **Test:** `TestActivityFeed.test_only_shows_friends()`
+  - **Behavior verified:** The activity feed only includes activities from friends, not other users.
+  - **Why it would fail:** If friend filtering was broken, non-friend activities would appear in the Recent Activity feed, failing the assertion.
+
+- **Test:** `TestFeedEdgeCases.test_listening_now_VS_recent_activity()`
+  - **Behavior verified:** Listening Now filters by current day; Activity Feed does not.
+  - **Why it would fail:** If both feeds used the same cutoff logic, this test would fail because activity feed would have the same or fewer results than listening_now, which contradicts the expected behavior.
+
+**Why These Tests Are Effective:**
+
+These tests use carefully seeded data that creates simple yet realistic scenarios:
+- Friend 1: 1 activity today
+- Friend 2: 2 activities (1 today, 1 yesterday)
+- Friend 3: 1 activity yesterday
+- Non-friend: 1 activity today (excluded from feeds)
+
+This setup allows tests to verify boundary conditions (midnight UTC cutoff), deduplication logic, ordering, filtering, and limit handling—all of which are critical to preventing feed-related bugs from reoccurring.
