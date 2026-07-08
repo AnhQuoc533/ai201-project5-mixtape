@@ -57,7 +57,7 @@ def seed_songs(app):
 
         # Assign tags
         db.session.execute(
-            song_tags.insert().values(song_id=song_one_tag.id, tag_id=tag_rap.id)
+            song_tags.insert().values(song_id=song_one_tag.id, tag_id=tag_hiphop.id)
         )
         db.session.execute(
             song_tags.insert().values(song_id=song_multi_tags.id, tag_id=tag_rap.id)
@@ -115,5 +115,5 @@ def test_search_no_duplicates_no_tag_song(app, seed_songs):
 def test_search_returns_empty_for_no_match(app, seed_songs):
     """A search with no matching songs returns an empty list."""
     with app.app_context():
-        results = search_songs("zzz_no_match_zzz")
+        results = search_songs("No Match")
         assert results == []
