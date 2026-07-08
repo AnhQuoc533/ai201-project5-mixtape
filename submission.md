@@ -1,14 +1,14 @@
 ## AI Usage
 **Instance 1:**
-* *What I gave the AI:* 
-* *What it produced:* 
-* *What I changed or overrode:* After I fixed all bugs, I came back to double-check, make a few changes, add more inforamtion to the [Codebase Map](#codebase-map). Because in the beginning, the source code contained logical bugs and the AI could misunderstand and assume they were the actualy features of the services. Bugs are not features.
+* *What I gave the AI:* The source code in `routes/` and `services/`, a list of services and their corresponding features, a short data flow description of the feature *Rate a Song* to use as an example, and a request of complete the data flow description for the remaining features.  
+* *What it produced:* A complete data flow description for each feature, providing a clear overview of how data flows through the application.  
+* *What I changed or overrode:* After I fixed all bugs, I came back to double-check, make a few changes, add more inforamtion to the [Codebase Map](#codebase-map). Because in the beginning, the source code contained logical bugs and the AI could misunderstand and assume they were the actualy features of the services. Bugs are not features.  
 
 
 **Instance 2:**
-* *What I gave the AI:* 
-* *What it produced:* 
-* *What I changed or overrode:* 
+* *What I gave the AI:* The source code of `services/feed_service.py` and `tests/test_playlists.py` (as a template to follow), a request to create a comprehensive `pytest` framework for testing all functions in `services/feed_service.py`, and test requirements: verify correct record counts, test deduplication (one song per friend), ensure only friends' activities are shown (not non-friends), verify recency ordering, and validate the limit parameter.
+* *What it produced:* A complete test suite in `tests/test_feed.py` with 17 test cases organized into 3 test classes: `TestFriendsListeningNow` (7 tests), `TestActivityFeed` (8 tests), and `TestFeedEdgeCases` (2 tests). It included a test scenario with 4 users (main user, 3 friends, 1 non-friend) and 5 listening events distributed across different time periods to test boundary conditions like midnight UTC cutoffs.
+* *What I changed or overrode:* I removed similar test cases and refactored some of the test function names. More importantly, I fixed 2 of the test cases regarding Recent Activity features, as they made a mistake by assuming there were 3 recent activities from friends while there were 4 in total, according to the test scenario. 
 
 ## Codebase Map
 ### Overview
@@ -43,7 +43,7 @@
 ### Bug #1
 **Issue number:** 1  
 **Title:** My listening streak keeps resetting  
-**Preproduction Process:** I ran the test cases in `tests/test_streaks.py` and encountered 1 failed tests and 4 passed test.   
+**Reproduction Process:** I ran the test cases in `tests/test_streaks.py` and encountered 1 failed tests and 4 passed test.   
 <!-- What steps did you take to confirm the bug exists before touching any code? What inputs, sequence of actions, or data condition triggered the behavior? !-->
 **Discovery Process:** After reading the failure report and the failed test case (`test_streak_increments_on_sunday`), I found out that the streaking service did not increment the listening streak on Sundays. This test case primarily executed `update_listening_streak` function. Therefore, the bug must have lived there.   
 <!-- Which files did you look at? What was your navigation path? What moment made you confident you'd found the right place — not just a suspicious area, but the specific cause? !-->
@@ -51,13 +51,13 @@
 <!-- explain the specific condition, comparison, logic error, or missing step that caused the problem. !-->
 **Solution:** Simply remove `today.weekday() != 6` from the increment condition. This lets the function increment the listening streak, regardless of the day of the week.  
 <!-- What did you change and why does that change fix the root cause? What related functionality did you check afterward to confirm you didn't break anything? !-->
-**Side-effect Check:** I ran the test cases from `tests/test_playlists.py` again and all tests passed.  
+**Side-effect Check:** I re-ran the test in `tests/test_streaks.py`, including the test cases for streak initialization, reset, increment, and no change on same day. All tests passed successfully.  
 
 
 ### Bug #2
 **Issue number:** 2  
 **Title:** *Friends Listening Now* shows people from yesterday  
-**Preproduction Process:** I seeded the database with test data and ran the application. To retrieve user IDs, I executed the command `sqlite3 instance/mixtape.db "SELECT * FROM user;"` and inspected the Listening Now feed for several users. Simone's feed showed his friend, Nova, was listening to a song from yesterday. This event confirmed the reported bug.  
+**Reproduction Process:** I seeded the database with test data and ran the application. To retrieve user IDs, I executed the command `sqlite3 instance/mixtape.db "SELECT * FROM user;"` and inspected the Listening Now feed for several users. Simone's feed showed his friend, Nova, was listening to a song from yesterday. This event confirmed the reported bug.  
 **Discovery Process:** According to the [Data Flow](#data-flow), the `get_friends_listening_now` function in `services/feed_service.py` is responsible for Listening Now service. Its docstring also confirmed its responsibility.    
 **Bug Description:** The root cause was the `cutoff` variable. The query filtered `ListeningEvent` records using the timestamp stored in this variable, which was defined as 24 hours before the current time. As a result, friends who listened within the last 24 hours, including yesterday, appeared in the Friends Listening Now feed.       
 **Solution:** I removed `RECENT_THRESHOLD` and re-defined `cutoff`:
@@ -65,21 +65,21 @@
 cutoff = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 ```
 New `cutoff` will let the query return listening events that only occurred since midnight UTC of the current day.   
-**Side-effect Check:** I inspected the Listening Now feed for all users and every records were correctly showing only activities within the current day.  
+**Side-effect Check:** I re-inspected the Listening Now feed for all testing users and every records correctly showed only activities within the current day. Plus, the datameta of the records were correctly returned.  
 
 ### Bug #3
 **Issue number:** 3   
 **Title:** The same song keeps showing up twice in search  
-**Preproduction Process:**  
-**Discovery Process:**  
-**Bug Description:**  
-**Solution:**  
-**Side-effect Check:**  
+**Reproduction Process:** After multiple attempts to reproduce the bug, there was no success. The bug did not appear and did not fail any test cases by `pytest`. Manual testing with `sqlite3 ` and `curl` on command line also did not catch any issues related to this report.   
+**Discovery Process:** According to the [Data Flow](#data-flow), the `search_songs` function in `services/search_service.py` is responsible for Song Searching service. Its docstring also confirmed its responsibility.   
+**Bug Description:** The bug actually never happens. The source code of `search_songs` function uses `.all()` on the query and as per **SQLAlchemy** documentation, it will automatically deduplicate the results by primary key. So even if the `.outerjoin()` creates duplicate songs in the SQL result set, `.all()` returns a list with only unique songs.  
+**Solution:** N/A  
+**Side-effect Check:** N/A  
 
 ### Bug #4
 **Issue number:** 4   
 **Title:** I got notified when a friend added my song to a playlist but not when they rated it
-**Preproduction Process:**  
+**Reproduction Process:**  
 **Discovery Process:**  
 **Bug Description:**  
 **Solution:**  
@@ -88,11 +88,11 @@ New `cutoff` will let the query return listening events that only occurred since
 ### Bug #5
 **Issue number:** 5   
 **Title:** The last song in a playlist never shows up
-**Preproduction Process:** I ran the test cases in `tests/test_playlists.py` and encountered 2 failed tests and 1 passed test.  
+**Reproduction Process:** I ran the test cases in `tests/test_playlists.py` and encountered 2 failed tests and 1 passed test.  
 **Discovery Process:** After reading the test summary, I found out that the service returned 4 songs in the testing playlist when it was supposed to be 5 of them. I read the two of the failed test cases (`test_playlist_returns_all_songs` and `test_playlist_returns_songs_in_order`) and confirmed the main function used in these test cases was `get_playlist_songs`. Therefore, the bug must have lived there. 
 **Bug Description:** The last line of code of the `get_playlist_songs()` function used list comprehension to quickly convert query results to a list of dictionary. However, the code also indexed the list of query results from the first position up to the last position exclusively, NOT inclusively, `songs[:-1]`. In Python, a list slice `[start:stop]` is inclusive of the start but exclusive of the stop. This caused the playlist display service to skip the last queried song and introduced a bug.
 **Solution:** Simply remove the list slicing, i.e. `[:-1]`. This lets the function retrieve and process the whole query results stored in the `songs` list, instead of a part of it.
-**Side-effect Check:** I ran the test cases from `tests/test_playlists.py` again and all tests passed.
+**Side-effect Check:** I re-ran the test in `tests/test_playlists.py`, including the test cases for empty playlist and song order, and all tests passed.
 
 
 ## Regression Test
