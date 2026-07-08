@@ -57,7 +57,7 @@
 ### Bug #2
 **Issue number:** 2  
 **Title:** *Friends Listening Now* shows people from yesterday  
-**Reproduction Process:** I seeded the database with test data and ran the application. To retrieve user IDs, I executed the command `sqlite3 instance/mixtape.db "SELECT * FROM user;"` and inspected the Listening Now feed for several users. Simone's feed showed his friend, Nova, was listening to a song from yesterday. This event confirmed the reported bug.  
+**Reproduction Process:** I seeded the database with test data by executing `seed_data.py` and ran the application. To retrieve user IDs, I executed the command `sqlite3 instance/mixtape.db "SELECT * FROM user;"` and inspected the Listening Now feed for several users. Simone's feed showed his friend, Nova, was listening to a song from yesterday. This scenario confirmed the reported bug.  
 **Discovery Process:** According to the [Data Flow](#data-flow), the `get_friends_listening_now` function in `services/feed_service.py` is responsible for Listening Now service. Its docstring also confirmed its responsibility.    
 **Bug Description:** The root cause was the `cutoff` variable. The query filtered `ListeningEvent` records using the timestamp stored in this variable, which was defined as 24 hours before the current time. As a result, friends who listened within the last 24 hours, including yesterday, appeared in the Friends Listening Now feed.       
 **Solution:** I removed `RECENT_THRESHOLD` and re-defined `cutoff`:
@@ -70,7 +70,7 @@ New `cutoff` will let the query return listening events that only occurred since
 ### Bug #3
 **Issue number:** 3   
 **Title:** The same song keeps showing up twice in search  
-**Reproduction Process:** After multiple attempts to reproduce the bug, there was no success. The bug did not appear and did not fail any test cases by `pytest`. Manual testing with `sqlite3 ` and `curl` on command line also did not catch any issues related to this report.   
+**Reproduction Process:** After multiple attempts to reproduce the bug, there was no success. The bug did not appear and did not fail any test cases by `tests/test_search.py`. Moreoever, command-line testing with `sqlite3` (to create new data on `mixtape.db`) and `curl` (to get search result back from the application) did not catch any issues related to this report.   
 **Discovery Process:** According to the [Data Flow](#data-flow), the `search_songs` function in `services/search_service.py` is responsible for Song Searching service. Its docstring also confirmed its responsibility.   
 **Bug Description:** The bug actually never happens. The source code of `search_songs` function uses `.all()` on the query and as per **SQLAlchemy** documentation, it will automatically deduplicate the results by primary key. So even if the `.outerjoin()` creates duplicate songs in the SQL result set, `.all()` returns a list with only unique songs.  
 **Solution:** N/A  
@@ -79,11 +79,19 @@ New `cutoff` will let the query return listening events that only occurred since
 ### Bug #4
 **Issue number:** 4   
 **Title:** I got notified when a friend added my song to a playlist but not when they rated it
-**Reproduction Process:**  
-**Discovery Process:**  
-**Bug Description:**  
-**Solution:**  
-**Side-effect Check:**  
+**Reproduction Process:** Using `sqlite3` command, I created 2 new users and 1 song. I marked the new song as shared by User 1. Then, I rated this song as User 2 using `curl` and viewed the list of notifications of User 1. After checking notifications, I confirmed that the rating activity from User 2 did not appear in User 1's notification feed.    
+**Discovery Process:** According to the [Data Flow](#data-flow), the `rate_song` function in `services/notification_service.py` is responsible for Song Rating service. Its docstring also confirmed its responsibility.  
+**Bug Description:** As I compared code implementation of two functions, `rate_song` and `add_to_playlist`, I discovered that the latter function established a notification to the song sharer after user added a song to their playlist, while the former function did not.    
+**Solution:** I added an `if` condition, similar to the one in `add_to_playlist`, to create a notification for the user who originially shared the song. This code block will be executed after the rating score is made and updated to the database.
+```python
+if song.shared_by != user_id:
+    create_notification(
+        user_id=song.shared_by,
+        notification_type="song_rated",
+        body=f"{rater.username} rated your song '{song.title}' {score} star{'s' if score > 1 else ''}.",
+    )
+```
+**Side-effect Check:** I rated different songs with different scores and the rating activity correctly showed up on the sharer's notifications. Plus, I let one of the user rate the song they shared and no notification was made, as expected.  
 
 ### Bug #5
 **Issue number:** 5   
